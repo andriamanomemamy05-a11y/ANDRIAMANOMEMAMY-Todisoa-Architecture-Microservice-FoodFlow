@@ -1,0 +1,20 @@
+## Ceci est dédié à la base de données de la commande
+services:
+  order-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: order
+      POSTGRES_PASSWORD: order
+      POSTGRES_DB: orderdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "order"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  order-db-data:
