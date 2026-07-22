@@ -52,7 +52,7 @@ services:
       POSTGRES_PASSWORD: payment
       POSTGRES_DB: paymentdb
     ports:
-      - "5433:5432" # Exposé sur le port local 5433 pour éviter les conflits avec order-db (5432)
+      - "5433:5432"
     volumes:
       - payment-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -70,6 +70,61 @@ services:
     depends_on:
       payment-db:
         condition: service_healthy
+    networks:
+      - foodflow-network
+
+  # ==========================================
+  # 🚀 NOUVEAUX SERVICES TP4 : KAFKA & KAFKA-UI
+  # ==========================================
+  kafka:
+    image: apache/kafka:4.3.1
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://kafka:29092,CONTROLLER://kafka:9093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - foodflow-network
+
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - foodflow-network
+
+  # Conteneur éphémère pour initialiser les topics automatiquement
+  kafka-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "Création des topics Kafka pour FoodFlow..."
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.events --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic payments.events --partitions 3 --replication-factor 1
+        echo "Topics créés avec succès !"
     networks:
       - foodflow-network
 

@@ -61,3 +61,10 @@ Liste des événements métier **au passé composé**, dans l'ordre chronologiqu
 | `GET` | `/orders/{id}` | Obtenir le détail d'une commande par son UUID | `200 OK` |
 | `PATCH` | `/orders/{id}/status` | Changer le statut d'une commande (ex: PAID, CANCELLED) | `200 OK` |
 | `DELETE` | `/orders/{id}` | Supprimer une commande | `204 No Content` |
+
+## 5. Spécification des Topics Kafka et Clés de Partitionnement (TP4)
+
+| Topic Kafka | Événements associés | Clé Choisie (`Key`) | Justification du choix de la clé |
+| :--- | :--- | :--- | :--- |
+| `orders.events` | `PanierValidé`, `CommandeCréée`, `CommandeAnnulée` | `orderId` | Garantit que tous les événements du cycle de vie d'une commande sont envoyés sur la **même partition** dans l'ordre chronologique. |
+| `payments.events` | `PaiementDemandé`, `PaiementAutorisé`, `PaiementRefusé` | `orderId` | Permet aux consommateurs (ex: `order-service`) d'associer directement le paiement à la bonne commande dans la même partition. |
