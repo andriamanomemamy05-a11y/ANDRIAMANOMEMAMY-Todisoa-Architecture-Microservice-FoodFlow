@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import fr.esgi.foodflow.order_service.service.PaymentGateway;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,10 +19,12 @@ import java.util.UUID;
 public class OrderController {
 
     private final OrderRepository orderRepository;
+    private final PaymentGateway paymentGateway;
 
-    public OrderController(OrderRepository orderRepository) {
-        this.orderRepository = orderRepository;
-    }
+    public OrderController(OrderRepository orderRepository, PaymentGateway paymentGateway) {
+    this.orderRepository = orderRepository;
+    this.paymentGateway = paymentGateway;
+}
 
     // 1. POST /orders : Créer une commande
     @PostMapping
@@ -65,5 +68,11 @@ public class OrderController {
         }
         orderRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/payment-status")
+    public ResponseEntity<String> getOrderPaymentStatus(@PathVariable UUID id) {
+        String status = paymentGateway.paymentStatus(id);
+        return ResponseEntity.ok(status);
     }
 }

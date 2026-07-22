@@ -1,0 +1,22 @@
+http:
+  routers:
+    orders-router:
+      rule: "PathPrefix(`/orders`)"
+      service: "orders-service"
+      entryPoints:
+        - "web"
+    payments-router:
+      rule: "PathPrefix(`/payments`)"
+      service: "payments-service"
+      entryPoints:
+        - "web"
+
+  services:
+    orders-service:
+      loadBalancer:
+        servers:
+          - url: "http://order-service:8080"
+    payments-service:
+      loadBalancer:
+        servers:
+          - url: "http://payment-service:3000"

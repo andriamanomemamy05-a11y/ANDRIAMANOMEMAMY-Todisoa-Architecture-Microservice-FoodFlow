@@ -23,3 +23,13 @@
 5. **Préparer** un repas (Restaurant)
 6. **Livrer** une commande (Livreur)
 7. **Suivre** le statut d'une commande
+
+## TP3 - Résilience et Circuit Breaker
+
+Nous avons configuré Resilience4j sur `order-service` pour protéger les appels vers `payment-service`.
+
+### Séquence de test observée :
+1. **État CLOSED** : `payment-service` est en ligne, l'appel HTTP inter-services renvoie le statut réel du paiement.
+2. **Coupure du service** : Arret de `payment-service` (`docker compose stop payment-service`).
+3. **Passage à OPEN** : Après 5 échecs consécutifs, le Circuit Breaker bascule en état `OPEN`. Les appels suivants renvoient immédiatement le fallback `"UNKNOWN"` sans attendre le timeout HTTP.
+4. **Passage à HALF-OPEN & CLOSED** : Redémarrage de `payment-service`. Après 10s d'attente, les requêtes de test passent, l'état bascule en `HALF-OPEN` puis se referme définitivement en `CLOSED`.

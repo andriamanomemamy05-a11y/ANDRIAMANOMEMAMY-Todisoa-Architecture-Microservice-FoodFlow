@@ -1,5 +1,19 @@
-## Ceci est dédié à la base de données de la commande
 services:
+  gateway:
+    image: traefik:v3.1
+    command:
+      - "--providers.file.filename=/traefik_dynamic.yml"
+      - "--entrypoints.web.address=:80"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+    ports:
+      - "80:80"
+      - "8088:8080"
+    volumes:
+      - ./traefik_dynamic.yml:/traefik_dynamic.yml:ro
+    networks:
+      - foodflow-network
+
   order-db:
     image: postgres:16-alpine
     environment:
@@ -15,6 +29,54 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - foodflow-network
+
+  order-service:
+    build: ./order-service
+    ports:
+      - "8081:8080"
+    environment:
+      DB_HOST: order-db
+      PAYMENT_URL: http://payment-service:3000
+    depends_on:
+      order-db:
+        condition: service_healthy
+    networks:
+      - foodflow-network
+
+  payment-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: payment
+      POSTGRES_DB: paymentdb
+    ports:
+      - "5433:5432" # Exposé sur le port local 5433 pour éviter les conflits avec order-db (5432)
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "payment"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - foodflow-network
+
+  payment-service:
+    build: ./payment-service
+    environment:
+      DATABASE_URL: "postgresql://payment:payment@payment-db:5432/paymentdb?schema=public"
+    depends_on:
+      payment-db:
+        condition: service_healthy
+    networks:
+      - foodflow-network
+
+networks:
+  foodflow-network:
+    driver: bridge
 
 volumes:
   order-db-data:
+  payment-db-data:
