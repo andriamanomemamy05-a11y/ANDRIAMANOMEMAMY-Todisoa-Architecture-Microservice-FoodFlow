@@ -1,44 +1,42 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient, Payment } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 
+export type PaymentStatus = 'AUTHORIZED' | 'REFUSED';
+
+export interface Payment {
+  id: string;
+  orderId: string;
+  amount: number;
+  status: PaymentStatus;
+  createdAt: string;
+}
+
 @Injectable()
-export class PaymentsService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
-  async onModuleInit() {
-    await this.$connect();
-  }
+export class PaymentsService {
+  private readonly payments = new Map<string, Payment>();
 
-  async onModuleDestroy() {
-    await this.$disconnect();
-  }
+  create(dto: CreatePaymentDto): Payment {
+    // Règle métier simple pour démontrer les 2 chemins :
+    // au-dessus de 100, le paiement est refusé.
+    const status: PaymentStatus = dto.amount > 100 ? 'REFUSED' : 'AUTHORIZED';
 
-  async create(dto: CreatePaymentDto): Promise<Payment> {
-    const status = dto.amount > 1000 ? 'REFUSED' : 'AUTHORIZED';
-
-    return this.payment.create({
-      data: {
-        orderId: dto.orderId,
-        amount: dto.amount,
-        status: status,
-      },
-    });
-  }
-
-  async findByOrderId(orderId: string): Promise<Payment> {
-    const payment = await this.payment.findFirst({
-      where: { orderId },
-    });
-
-    if (!payment) {
-      return {
-        id: 'none',
-        orderId,
-        amount: 0,
-        status: 'REFUSED',
-        createdAt: new Date(),
-      };
-    }
-
+    const payment: Payment = {
+      id: randomUUID(),
+      orderId: dto.orderId,
+      amount: dto.amount,
+      status,
+      createdAt: new Date().toISOString(),
+    };
+    this.payments.set(payment.orderId, payment);
     return payment;
+  }
+
+  statusByOrder(orderId: string): { orderId: string; status: PaymentStatus } {
+    const payment = this.payments.get(orderId);
+    if (!payment) {
+      throw new NotFoundException(`No payment for order ${orderId}`);
+    }
+    return { orderId, status: payment.status };
   }
 }

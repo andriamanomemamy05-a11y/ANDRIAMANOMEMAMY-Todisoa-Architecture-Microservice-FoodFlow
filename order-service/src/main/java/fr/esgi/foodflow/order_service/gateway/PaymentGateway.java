@@ -1,4 +1,4 @@
-package fr.esgi.foodflow.order_service.service;
+package fr.esgi.foodflow.order_service.gateway;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.stereotype.Service;
@@ -23,8 +23,7 @@ public class PaymentGateway {
                 .body(String.class);
     }
 
-    // Le fallback est exécuté si la requête échoue ou si le circuit est OPEN
-    public String statusFallback(UUID orderId, Throwable t) {
-        return "UNKNOWN";
+    String statusFallback(UUID orderId, Throwable t) {
+        return "UNKNOWN"; // décision métier : l'état est inconnu, pas faux
     }
 }

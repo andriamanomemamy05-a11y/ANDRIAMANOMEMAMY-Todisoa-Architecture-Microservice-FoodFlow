@@ -12,10 +12,10 @@ import java.time.Duration;
 public class HttpClientsConfig {
 
     @Bean
-    public RestClient paymentClient(@Value("${payment.base-url}") String baseUrl) {
+    RestClient paymentClient(@Value("${payment.base-url}") String baseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout((int) Duration.ofSeconds(1).toMillis());
-        requestFactory.setReadTimeout((int) Duration.ofSeconds(2).toMillis());
+        requestFactory.setConnectTimeout(Duration.ofSeconds(1));
+        requestFactory.setReadTimeout(Duration.ofSeconds(2));
 
         return RestClient.builder()
                 .baseUrl(baseUrl)

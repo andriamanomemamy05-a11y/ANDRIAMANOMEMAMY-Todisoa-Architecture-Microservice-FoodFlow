@@ -1,8 +1,11 @@
 services:
   gateway:
-    image: traefik:v3.1
+    # v3.7.8 négocie la version d'API Docker via /_ping (utilise 1.54), donc
+    # compatible avec Docker Engine 29 / Moby v2 sans intermédiaire.
+    image: traefik:v3.7.8
     command:
-      - "--providers.file.filename=/traefik_dynamic.yml"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
       - "--api.dashboard=true"
       - "--api.insecure=true"
@@ -10,72 +13,8 @@ services:
       - "80:80"
       - "8088:8080"
     volumes:
-      - ./traefik_dynamic.yml:/traefik_dynamic.yml:ro
-    networks:
-      - foodflow-network
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
-  order-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: order
-      POSTGRES_PASSWORD: order
-      POSTGRES_DB: orderdb
-    ports:
-      - "5432:5432"
-    volumes:
-      - order-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "order"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - foodflow-network
-
-  order-service:
-    build: ./order-service
-    ports:
-      - "8081:8080"
-    environment:
-      DB_HOST: order-db
-      PAYMENT_URL: http://payment-service:3000
-    depends_on:
-      order-db:
-        condition: service_healthy
-    networks:
-      - foodflow-network
-
-  payment-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: payment
-      POSTGRES_PASSWORD: payment
-      POSTGRES_DB: paymentdb
-    ports:
-      - "5433:5432"
-    volumes:
-      - payment-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "payment"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - foodflow-network
-
-  payment-service:
-    build: ./payment-service
-    environment:
-      DATABASE_URL: "postgresql://payment:payment@payment-db:5432/paymentdb?schema=public"
-    depends_on:
-      payment-db:
-        condition: service_healthy
-    networks:
-      - foodflow-network
-
-  # ==========================================
-  # 🚀 NOUVEAUX SERVICES TP4 : KAFKA & KAFKA-UI
-  # ==========================================
   kafka:
     image: apache/kafka:4.3.1
     ports:
@@ -96,8 +35,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks:
-      - foodflow-network
 
   kafka-ui:
     image: ghcr.io/kafbat/kafka-ui:latest
@@ -109,29 +46,86 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    networks:
-      - foodflow-network
 
-  # Conteneur éphémère pour initialiser les topics automatiquement
   kafka-init:
     image: apache/kafka:4.3.1
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: [ "/bin/sh", "-c" ]
+    entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        echo "Création des topics Kafka pour FoodFlow..."
+        echo 'Création des topics FoodFlow...'
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.events --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic payments.events --partitions 3 --replication-factor 1
-        echo "Topics créés avec succès !"
-    networks:
-      - foodflow-network
+        echo 'Création des topics morts (DLT/DLQ)...'
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic payments.events.DLT --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic orders.events.DLQ --partitions 3 --replication-factor 1
+        echo '--- Topics existants ---'
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
 
-networks:
-  foodflow-network:
-    driver: bridge
+  order-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: order
+      POSTGRES_PASSWORD: order
+      POSTGRES_DB: orderdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "order"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  order-service:
+    build: ./order-service
+    environment:
+      DB_HOST: order-db
+      PAYMENT_URL: http://payment-service:3000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # --- OpenTelemetry (traces uniquement) ---
+      OTEL_SERVICE_NAME: order-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      # Métriques : on garde le pull Micrometer (critère du TP), l'agent ne fait que les traces.
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+    ports:
+      - "8080:8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orders.rule=PathPrefix(`/orders`)"
+      - "traefik.http.services.orders.loadbalancer.server.port=8080"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  payment-service:
+    build: ./payment-service
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      # --- OpenTelemetry (auto-instrumentation Node, traces uniquement) ---
+      NODE_OPTIONS: --require @opentelemetry/auto-instrumentations-node/register
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+    ports:
+      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.payments.rule=PathPrefix(`/payments`)"
+      - "traefik.http.services.payments.loadbalancer.server.port=3000"
+    depends_on:
+      kafka:
+        condition: service_healthy
 
 volumes:
   order-db-data:
-  payment-db-data:
